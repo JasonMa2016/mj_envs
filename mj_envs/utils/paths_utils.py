@@ -15,6 +15,15 @@ from PIL import Image
 import click
 from mj_envs.utils.dict_utils import flatten_dict, dict_numpify
 
+import torch
+import torchvision
+import torchvision.transforms as T
+from torchvision.utils import save_image
+
+torch_transforms = T.Compose([T.Resize(256),
+                        T.CenterCrop(224),
+                        T.ToTensor()])
+
 # Useful to check the horizon for teleOp / Hardware experiments
 def plot_horizon(paths, env, fileName_prefix=None):
     import matplotlib as mpl
@@ -162,17 +171,19 @@ def plot(paths, env=None, fileName_prefix=''):
         print("saved ", file_name)
 
 
-# render frames/videos from paths
-def render(rollout_path, render_format:str="mp4", cam_name:str="left"):
+# Render frames/videos
+def render(rollout_path, render_format:str="mp4", cam_names:list=["left"]):
     # rollout_path:     Absolute path of the rollout (h5/pickle)', default=None
     # format:           Format to save. Choice['rgb', 'mp4']
-    # cam:              Camera to render. Example ['left', 'right', 'top', 'Franka_wrist']
+    # cam:              list of cameras to render. Example ['left', 'right', 'top', 'Franka_wrist']
 
-    output_dir = os.path.dirname(rollout_path)
+    output_dir = "/mnt/tmp_nfs_clientshare/jasonyma/robopen_dataaset/jasonyma_dataset/videos"
+    # output_dir = os.path.dirname(rollout_path)
     rollout_name = os.path.split(rollout_path)[-1]
     output_name, output_type = os.path.splitext(rollout_name)
+    file_name_og = os.path.join(output_dir, output_name+"_"+"-".join(cam_names))
 
-
+    # resolve data format
     if output_type=='.h5':
         paths = h5py.File(rollout_path, 'r')
     elif output_type=='.pickle':
@@ -180,51 +191,69 @@ def render(rollout_path, render_format:str="mp4", cam_name:str="left"):
     else:
         raise TypeError("Unknown path format. Check file")
 
-
     # Run through all trajs in the paths
     for i_path, path in enumerate(paths):
+
         if output_type=='.h5':
-            path = paths[path]
-
-        # find full path name
-        if i_path == 0:
-            for key in path['env_infos']['obs_dict'].keys():
-                if cam_name in key:
-                    cam_name = key
-                    break
-
-        # find find horizon
-        path_horizon = path['actions'].shape[0]
-
-        # render video
-        if render_format == "mp4":
-            # pre allocate buffer
-            if i_path == 0:
-                height, width, _ = path['env_infos']['obs_dict'][cam_name][0].shape
-                frames = np.zeros((path_horizon, height, width, 3), dtype=np.uint8)
-
-            file_name = os.path.join(output_dir, output_name+'{}{}.mp4'.format(i_path, cam_name))
-            print("Recovering frames:", end="")
-            for t in range(path_horizon):
-                frames[t,:,:,:] = path['env_infos']['obs_dict'][cam_name][t]
-                print(t, end=",")
-            frames[frames==255] = 254 # remove rendering artifact due to saturation
-            skvideo.io.vwrite(file_name, np.asarray(frames))
-            print("\nSaving: {}".format(file_name))
-
-        # render each frame
-        elif render_format == "rgb":
-            print("Recovering frames:", end="")
-            for t in range(path_horizon):
-                file_name = os.path.join(output_dir, output_name+'{}{}{}.png'.format(i_path, cam_name, t))
-                img =  path['env_infos']['obs_dict'][cam_name][t]
-                image = Image.fromarray(img)
-                image.save(file_name)
-                print(t, end=",")
-            print(": Done")
+            data = paths[path]['data']
+            path_horizon = data['time'].shape[0]
         else:
-            raise TypeError("Unknown format")
+            data = path['env_infos']['obs_dict']
+            path_horizon = path['env_infos']['time'].shape[0]
 
+        # find full key name
+        cam_keys = []
+        for key in data.keys():
+            for cam_name in cam_names:
+                if cam_name in key and 'rgb' in key:
+                    cam_keys.append(key)
+        assert cam_keys != [], "No observations found for cameras"
+
+        # pre allocate buffer
+        if i_path==0:
+            height, width, _ = data[cam_keys[0]][0].shape
+            frame_tile = np.zeros((height, width*len(cam_keys), 3), dtype=np.uint8)
+            if render_format == "mp4":
+                # frames = np.zeros((path_horizon*len(paths), height, width*len(cam_keys), 3), dtype=np.uint8)
+                frames = np.zeros((path_horizon, height, width*len(cam_keys), 3), dtype=np.uint8)
+
+        # Render
+        print("Recovering {} frames:".format(render_format), end="")
+        for t in range(path_horizon):
+            # render single frame
+            for i_cam, cam_key in enumerate(cam_keys):
+                frame_tile[:,i_cam*width:(i_cam+1)*width, :] = data[cam_key][t]
+            # process single frame
+            if render_format == "mp4":
+                # frames[t+path_horizon*i_path,:,:,:] = frame_tile
+                frames[t,:,:,:] = frame_tile
+            if t == path_horizon-1:
+                image = Image.fromarray(frame_tile)
+                image.save(file_name_og+"_{}-{}.png".format(i_path, t))
+                image_cropped = torch_transforms(image)
+                save_image(image_cropped, file_name_og+"_{}-{}_cropped.png".format(i_path, t))
+
+            # elif render_format == "rgb":
+            #     if t == path_horizon-1:
+            #         image = Image.fromarray(frame_tile)
+            #         image.save(file_name_og+"_{}-{}.png".format(i_path, t))
+            #         image_cropped = torch_transforms(image)
+            #         save_image(image_cropped, file_name_og+"_{}-{}_cropped.png".format(i_path, t))
+            # else:
+            #     raise TypeError("Unknown format")
+            print(t, end=",", flush=True)
+
+        # Save video
+        if render_format == "mp4":
+            file_name = file_name_og + "_{}.mp4".format(i_path)
+            skvideo.io.vwrite(file_name, np.asarray(frames))
+            print("\nSaving: " + file_name)
+    
+    # Save video (all in one)
+    # if render_format == "mp4":
+    #     file_name = file_name_og + ".mp4"
+    #     skvideo.io.vwrite(file_name, np.asarray(frames))
+    #     print("\nSaving: " + file_name)
 
 # parse path from robohive format into robopen dataset format
 def path2dataset(path:dict)->dict:
@@ -247,6 +276,9 @@ def path2dataset(path:dict)->dict:
         if key in obs_keys:
             dataset['data/'+key] = path['env_infos']['obs_dict'][key]
 
+    dataset['data/qpos'] = path['env_infos']['state']['qpos']
+    dataset['data/qvel'] = path['env_infos']['state']['qvel']
+    
     # cams
     for cam in ['left', 'right', 'top', 'wrist']:
         for key in obs_keys:
@@ -270,6 +302,20 @@ def path2dataset(path:dict)->dict:
         dataset['config/solved'] = float(path['user_cmt'])
 
     return dataset
+
+
+# Print h5 schema
+def print_h5_schema(obj):
+    "Recursively find all keys in an h5py.Group."
+    keys = (obj.name,)
+    if isinstance(obj, h5py.Group):
+        for key, value in obj.items():
+            if isinstance(value, h5py.Group):
+                keys = keys + print_h5_schema(value)
+            else:
+                print("\t", "{0:25}".format(value.name), value)
+                keys = keys + (value.name,)
+    return keys
 
 
 # convert paths from pickle to h5 format
@@ -337,43 +383,32 @@ def pickle2h5(rollout_path, output_dir=None, verify_output=False, h5_format:str=
 
         # Read back and verify a few keys
         if verify_output:
-
-            def allkeys(obj):
-                    "Recursively find all keys in an h5py.Group."
-                    keys = (obj.name,)
-                    if isinstance(obj, h5py.Group):
-                        for key, value in obj.items():
-                            if isinstance(value, h5py.Group):
-                                keys = keys + allkeys(value)
-                            else:
-                                print("\t", "{0:25}".format(value.name), value)
-                                keys = keys + (value.name,)
-                    return keys
-
             with h5py.File(output_path, "r") as h5file:
                 print("Printing schema read from output: ", output_path)
-                keys = allkeys(h5file)
+                keys = print_h5_schema(h5file)
 
     print("Finished Processing")
 
 
+# python paths_utils.py -u render -p /mnt/tmp_nfs_clientshare/jasonyma/mj_envs/mj_envs/utils/jason20220809-202612_paths.pickle -cn left -cn right -cn top
+
 DESC="""
 Script to recover images and videos from the saved pickle files
- - python utils/render_paths.py -p  paths.pickle -f mp4 -c right
- - python utils/render_paths.py -p  paths.h5 -f rgb -c left
-"""
+ - python utils/paths_utils.py -u render -p paths.pickle -rf mp4 -cn right
+ - python utils/paths_utils.py -u pickle2h5 -p paths.pickle -vo True -cp True -hf dataset
+ """
 @click.command(help=DESC)
-@click.option('-u', '--util', type=click.Choice(['plot_horizon', 'plot', 'render', 'pickle2h5']), help='pick utility', required=True)
-@click.option('-p', '--path', type=str, help='absolute path of the rollout (h5/pickle)', default=None)
+@click.option('-u', '--util', type=click.Choice(['plot_horizon', 'plot', 'render', 'pickle2h5', 'h5schema']), help='pick utility', default="render")
+@click.option('-p', '--path', type=click.Path(exists=True), help='absolute path of the rollout (h5/pickle)', default=None)
 @click.option('-e', '--env', type=str, help='Env name', default=None)
 @click.option('-on', '--output_name', type=str, default=None, help=('Output name'))
 @click.option('-od', '--output_dir', type=str, default=None, help=('Directory to save the outputs'))
 @click.option('-vo', '--verify_output', type=bool, default=False, help=('Verify the saved file'))
-@click.option('-hf', '--h5_format', type=click.Choice(['path', 'dataset']), help='format to save', default="path")
+@click.option('-hf', '--h5_format', type=click.Choice(['path', 'dataset']), help='format to save', default="dataset")
 @click.option('-cp', '--compress_path', help='compress paths. Remove obs and env_info/state keys', default=False)
 @click.option('-rf', '--render_format', type=click.Choice(['rgb', 'mp4']), help='format to save', default="mp4")
-@click.option('-cn', '--cam_name', help='camera to render. Eg: left, right, top, Franka_wrist', default="left")
-def util_path_cli(util, path, env, output_name, output_dir, verify_output, render_format, cam_name,h5_format, compress_path):
+@click.option('-cn', '--cam_names', multiple=True, help='camera to render. Eg: left, right, top, Franka_wrist', default=["Franka_wrist"])
+def util_path_cli(util, path, env, output_name, output_dir, verify_output, render_format, cam_names, h5_format, compress_path):
 
     if util=='plot_horizon':
         fileName_prefix = os.join(output_dir, output_name)
@@ -382,9 +417,13 @@ def util_path_cli(util, path, env, output_name, output_dir, verify_output, rende
         fileName_prefix = os.join(output_dir, output_name)
         plot(path, env, fileName_prefix)
     elif util=='render':
-        render(rollout_path=path, render_format=render_format, cam_name=cam_name)
+        render(rollout_path=path, render_format=render_format, cam_names=cam_names)
     elif util=='pickle2h5':
         pickle2h5(rollout_path=path, output_dir=output_dir, verify_output=verify_output, h5_format=h5_format, compress_path=compress_path)
+    elif util=='h5schema':
+        with h5py.File(path, "r") as h5file:
+            print("Printing schema read from output: ", path)
+            keys = print_h5_schema(h5file)
     else:
         raise TypeError("Unknown utility requested")
 

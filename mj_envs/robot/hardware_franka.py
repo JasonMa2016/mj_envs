@@ -84,7 +84,7 @@ class FrankaArm(hardwareBase):
         connection = self.okay()
         if connection:
             print("okay")
-            self.reset() # reset the robot before starting operaions
+            # self.reset() # reset the robot before starting operaions
             if policy==None:
                 # Create policy instance
                 s_initial = self.get_sensors()
@@ -143,14 +143,17 @@ class FrankaArm(hardwareBase):
         print("Re-connection success")
 
 
-    def reset(self, reset_pos=None, time_to_go=5):
+    def reset(self, reset_pos=None, time_to_go=3):
         """Reset hardware"""
 
         if self.okay():
+            # if False:
             if self.robot.is_running_policy(): # Is user controller?
                 print("Resetting using user controller")
 
                 if reset_pos == None:
+                    self.robot.go_home(time_to_go=time_to_go)
+                    return 
                     reset_pos = torch.Tensor(self.robot.metadata.rest_pose)
                 elif not torch.is_tensor(reset_pos):
                     reset_pos = torch.Tensor(reset_pos)

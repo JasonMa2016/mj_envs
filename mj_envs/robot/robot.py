@@ -85,6 +85,7 @@ class Robot():
             # start the robot
             if self.is_hardware is True:
                 prompt("Initializing robot: %s"%(self.name), 'white', 'on_grey')
+                # print(self.robot_config)
                 self.robot_config = self.hardware_init(self.robot_config)
         else:
             prompt("Reusing a previours session of {}".format(self.name), 'white', 'on_grey')
@@ -140,6 +141,8 @@ class Robot():
 
             elif device['interface']['type'] == 'realsense':
                 from .hardware_realsense import RealSense
+                # device['interface'][f"rgb_topic"] = device['interface']['topic']
+                # device['interface'][f"rgb_topic"] = "realsense_828112072870/color/image_raw"
                 device['robot'] = RealSense(name=name, **device['interface'])
 
 
@@ -433,13 +436,18 @@ class Robot():
                 assert data_width == width, "Incorrect image width: required:{}, found:{}".format(width, data_width)
                 current_sensor_value[cam_name] = data
 
+
                 # calibrate sensors
-                for cam in device['cams']:
-                    current_sensor_value[cam_name][cam['hdr_id']] = current_sensor_value[cam_name][cam['hdr_id']]*cam['scale'] + cam['offset']
+                # Jason: this gives an error on robopen04
+                # for cam in device['cams']:
+                #     current_sensor_value[cam_name][cam['hdr_id']] = current_sensor_value[cam_name][cam['hdr_id']]*cam['scale'] + cam['offset']
                 device['sensor_data'] = current_sensor_value[cam_name]
                 device['sensor_time'] = current_sensor_value['time']
                 imgs[ind, :, :, :] = current_sensor_value[cam_name]['rgb']
-                depths[ind, :, :] = current_sensor_value[cam_name]['d'][:,:,0] # assumes single channel depth
+                depths = np.zeros((len(cameras), height, width))
+
+                # Jason: I don't use depth, also gives an error somehow
+                # depths[ind, :, :] = current_sensor_value[cam_name]['d'][:,:,0] # assumes single channel depth
 
         else:
             imgs = np.zeros((len(cameras), height, width, 3), dtype=np.uint8)
@@ -671,7 +679,6 @@ class Robot():
               reset_vel):
 
         prompt("Resetting {}".format(self.name), 'white', 'on_grey', flush=True)
-
         # Enforce specs on the request
         #   for actuated dofs => actoator specs
         #   for passive dofs => sensor specs
@@ -702,6 +709,7 @@ class Robot():
             # engage other reset mechanisms for passive dofs
             # TODO raise NotImplementedError
 
+            # Jason: Comment out during policy training, keep for collecting demo or evaluation.
             input("press a key to start rollout")
             prompt(" Done in {}".format(time.time()-t_reset_start), 'white', 'on_grey', flush=True)
         else:

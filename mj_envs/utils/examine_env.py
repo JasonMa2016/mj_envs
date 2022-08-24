@@ -32,6 +32,9 @@ class rand_policy():
         # return self.env.np_random.uniform(high=self.env.action_space.high, low=self.env.action_space.low)
         return self.env.action_space.sample(), {'mode': 'random samples'}
 
+# python examine_env.py -e FetchRandomReach-v0 -r none -ea "{'is_hardware':True}"
+# python examine_env.py -e rpFrankaRobotiqData-v0 -r none -ea "{'is_hardware':True}"
+
 # MAIN =========================================================
 @click.command(help=DESC)
 @click.option('-e', '--env_name', type=str, help='environment to load', required= True)
@@ -59,10 +62,10 @@ def main(env_name, policy_path, mode, seed, num_episodes, render, camera_name, o
         pi = pickle.load(open(policy_path, 'rb'))
         if output_dir == './': # overide the default
             output_dir, pol_name = os.path.split(policy_path)
-            output_name = os.path.splitext(pol_name)[0]
+            output_name = os.path.splitext(pol_name)[0] + '_'
         if output_name is None:
             pol_name = os.path.split(policy_path)[1]
-            output_name = os.path.splitext(pol_name)[0]
+            output_name = os.path.splitext(pol_name)[0] + '_'
     else:
         pi = rand_policy(env, seed)
         mode = 'exploration'

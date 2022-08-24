@@ -91,3 +91,51 @@ register(
             ]
         }
 )
+
+register(
+    id='rpFrankaRobotiqData01-v0',
+    entry_point='mj_envs.envs.fm.franka_robotiq_data_v0:FrankaRobotiqData',
+    max_episode_steps=50, #50steps*40Skip*2ms = 4s
+    kwargs={
+        'model_path': '/assets/franka_robotiq.xml',
+        'config_path': curr_dir+'/assets/franka_robotiq01.config',
+        'nq_arm':7,
+        'nq_ee':1,
+        'name_ee':'end_effector',
+        'obs_keys':[
+            # customize the visual keys
+            "rgb:left_cam:{}:{}".format(img_res, encoder_type),
+            "rgb:right_cam:{}:{}".format(img_res, encoder_type),
+            "rgb:top_cam:{}:{}".format(img_res, encoder_type),
+            "rgb:Franka_wrist_cam:{}:{}".format(img_res, encoder_type),
+            "d:left_cam:{}:{}".format(img_res, encoder_type),
+            "d:right_cam:{}:{}".format(img_res, encoder_type),
+            "d:top_cam:{}:{}".format(img_res, encoder_type),
+            "d:Franka_wrist_cam:{}:{}".format(img_res, encoder_type),
+            ]
+        }
+)
+
+register(
+    id='rpFrankaRobotiqData04-v0',
+    entry_point='mj_envs.envs.fm.franka_robotiq_data_v0:FrankaRobotiqData',
+    max_episode_steps=50, #50steps*40Skip*2ms = 4s
+    kwargs={
+        'model_path': '/assets/franka_robotiq.xml',
+        'config_path': curr_dir+'/assets/franka_robotiq04.config',
+        'nq_arm':7,
+        'nq_ee':1,
+        'name_ee':'end_effector',
+        'obs_keys':[
+            # customize the visual keys
+            "rgb:left_cam:{}:{}".format(img_res, encoder_type),
+            "rgb:right_cam:{}:{}".format(img_res, encoder_type),
+            "rgb:top_cam:{}:{}".format(img_res, encoder_type),
+            "rgb:Franka_wrist_cam:{}:{}".format(img_res, encoder_type),
+            # "d:left_cam:{}:{}".format(img_res, encoder_type),
+            # "d:right_cam:{}:{}".format(img_res, encoder_type),
+            # "d:top_cam:{}:{}".format(img_res, encoder_type),
+            # "d:Franka_wrist_cam:{}:{}".format(img_res, encoder_type),
+            ]
+        }
+)

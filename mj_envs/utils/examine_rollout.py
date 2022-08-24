@@ -15,7 +15,7 @@ USAGE:\n
 '''
 
 import gym
-from mj_envs.utils.viz_paths import plot_paths as plotnsave_paths
+# from mj_envs.utils.viz_paths import plot_paths as plotnsave_paths
 from mj_envs.utils import tensor_utils
 import click
 import numpy as np
@@ -25,24 +25,33 @@ import os
 import skvideo.io
 
 
+# Jason: MAKE SURE RECORD HAS GAIN 0.0, and RECOVER HAS GAIN 0.5
+# python examine_rollout.py -e FrankaReachRandom-v0 -m record -on jason 
+# python examine_rollout.py -e FrankaReachRandom-v0 -m recover
+
+#
+#
+
 @click.command(help=DESC)
-@click.option('-e', '--env_name', type=str, help='environment to load', required=True)
+# @click.option('-e', '--env_name', type=str, help='environment to load', default="FrankaReachFixed_v2d-v0")
+@click.option('-e', '--env_name', type=str, help='environment to load', default="rpFrankaRobotiqData04-v0")
 @click.option('-p', '--rollout_path', type=str, help='absolute path of the rollout', default=None)
-@click.option('-m', '--mode', type=click.Choice(['record', 'render', 'playback', 'recover']), help='How to examine rollout', default='playback')
-@click.option('-h', '--horizon', type=int, help='Rollout horizon, when mode is record', default=-1)
+@click.option('-m', '--mode', type=click.Choice(['record', 'render', 'playback', 'recover']), help='How to examine rollout', default='record')
+@click.option('-k', '--keyboard', type=bool, help='use keyboard input', default=False)
+@click.option('-h', '--horizon', type=int, help='Rollout horizon, when mode is record', default=50)
 @click.option('-s', '--seed', type=int, help='seed for generating environment instances', default=123)
 @click.option('-n', '--num_repeat', type=int, help='number of repeats for the rollouts', default=1)
-@click.option('-r', '--render', type=click.Choice(['onscreen', 'offscreen', 'none']), help='visualize onscreen or offscreen', default='onscreen')
-@click.option('-c', '--camera_name', type=str, default=None, help=('Camera name for rendering'))
-@click.option('-o', '--output_dir', type=str, default='./', help=('Directory to save the outputs'))
-@click.option('-on', '--output_name', type=str, default=None, help=('The name to save the outputs as'))
-@click.option('-sp', '--save_paths', type=bool, default=False, help=('Save the rollout paths'))
-@click.option('-cp', '--compress_paths', type=bool, default=True, help=('compress paths. Remove obs and env_info/state keys'))
+@click.option('-r', '--render', type=click.Choice(['onscreen', 'offscreen', 'none']), help='visualize onscreen or offscreen', default='none')
+@click.option('-c', '--camera_name', type=str, default='top_cam', help=('Camera name for rendering'))
+@click.option('-o', '--output_dir', type=str, default='./jason_demo', help=('Directory to save the outputs'))
+@click.option('-on', '--output_name', type=str, default="jason", help=('The name to save the outputs as'))
+@click.option('-sp', '--save_paths', type=bool, default=True, help=('Save the rollout paths'))
+@click.option('-cp', '--compress_paths', type=bool, default=False, help=('compress paths. Remove obs and env_info/state keys'))
 @click.option('-pp', '--plot_paths', type=bool, default=False, help=('2D-plot of individual paths'))
-@click.option('-ea', '--env_args', type=str, default=None, help=('env args. E.g. --env_args "{\'is_hardware\':True}"'))
+@click.option('-ea', '--env_args', type=str, default="{\'is_hardware\':True}", help=('env args. E.g. --env_args "{\'is_hardware\':True}"'))
 @click.option('-ns', '--noise_scale', type=float, default=0.0, help=('Noise amplitude in randians}"'))
 
-def main(env_name, rollout_path, mode, horizon, seed, num_repeat, render, camera_name, output_dir, output_name, save_paths, compress_paths, plot_paths, env_args, noise_scale):
+def main(env_name, rollout_path, mode, keyboard, horizon, seed, num_repeat, render, camera_name, output_dir, output_name, save_paths, compress_paths, plot_paths, env_args, noise_scale):
 
     # seed and load environments
     np.random.seed(seed)
@@ -51,11 +60,16 @@ def main(env_name, rollout_path, mode, horizon, seed, num_repeat, render, camera
 
     # load paths
     if mode == 'record':
+        if keyboard:
+            from vtils.keyboard import key_input as keyboard 
+            ky = keyboard.Key()
         assert horizon>0, "Rollout horizon must be specified when recording rollout"
         assert output_name is not None, "Specify the name of the recording"
         if save_paths is False:
             print("Warning: Recording is not being saved. Enable save_paths=True to log the recorded path")
         paths = [None,]*num_repeat # empty paths for recordings
+        if rollout_path is not None:
+            rollout_path = pickle.load(open(rollout_path, 'rb'))
     else:
         assert rollout_path is not None, "Rollout path is required for mode:{} ".format(mode)
         paths = pickle.load(open(rollout_path, 'rb'))
@@ -75,9 +89,18 @@ def main(env_name, rollout_path, mode, horizon, seed, num_repeat, render, camera
     elif render == None:
         env.mujoco_render_frames = False
 
+    # print("HERE")
+    # if rollout_path is not None:
+    #     print("Resetting with rollout_path")
+    #     path = rollout_path[0]
+    #     env.reset(reset_qpos=path['env_infos']['state']['qpos'][0], reset_qvel=path['env_infos']['state']['qvel'][0])
+    # env.reset()
+    # from ipdb import set_trace
+    # set_trace()
+
     # playback paths
     pbk_paths = []
-    for i_loop in range(num_repeat):
+    for i_loop in range(1):
         print("Starting playback loop:{}".format(i_loop))
         ep_rwd = 0.0
         for i_path, path in enumerate(paths):
@@ -92,18 +115,39 @@ def main(env_name, rollout_path, mode, horizon, seed, num_repeat, render, camera
 
             # initialize env to the starting position
             if path and "state" in path['env_infos'].keys():
+                # print(path['env_infos']['state']['qpos'][0], path['env_infos']['state']['qvel'][0])
                 env.reset(reset_qpos=path['env_infos']['state']['qpos'][0], reset_qvel=path['env_infos']['state']['qvel'][0])
+            elif mode == "record" and rollout_path is not None: 
+                print("HERE")
+                env.env.robot.robot_config['franka']['robot'].gain_scale = 0.5
+                env.env.robot.robot_config['franka']['robot'].reconnect()
+                env.reset(reset_qpos=rollout_path[0]['env_infos']['state']['qpos'][0], reset_qvel=rollout_path[0]['env_infos']['state']['qvel'][0])
+                # time.sleep(2)
+                env.env.robot.robot_config['franka']['robot'].gain_scale = 0.0
+                env.env.robot.robot_config['franka']['robot'].reconnect()
             else:
+ 
                 env.reset()
 
             # Rollout
             o = env.get_obs()
+            sen_last = -1
             path_horizon = horizon if mode == 'record' else path['actions'].shape[0]
             for i_step in range(path_horizon):
-
+                print(i_step)
                 # Record Execution. Useful for kinesthetic demonstrations on hardware
+                # Jason: remember to set gain to 0 in .config file of the environment!
                 if mode=='record':
                     a = env.action_space.sample() # dummy random sample
+                    if keyboard:
+                        sen = ky.get_sensor()
+                        if sen is not None:
+                            # print(sen, end=", ", flush=True)
+                            if sen == 'up':
+                                sen_last = -1
+                            elif sen=='down':
+                                sen_last = 1
+                    a[-1] = sen_last
                     onext, r, d, info = env.step(a) # t ==> t+1
 
                 # Directly create the scene

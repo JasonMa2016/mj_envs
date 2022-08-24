@@ -11,6 +11,7 @@ import os
 import time as timer
 import torch
 import torchvision.transforms as T
+from PIL import Image 
 
 from mj_envs.utils.obj_vec_dict import ObsVecDict
 from mj_envs.utils import tensor_utils
@@ -19,6 +20,9 @@ from os import path
 import skvideo.io
 
 from r3m import load_r3m
+
+import hydra
+import omegaconf
 
 # TODO
 # remove rwd_mode
@@ -30,6 +34,21 @@ try:
     from mujoco_py import load_model_from_path, MjSim, MjViewer, load_model_from_xml
 except ImportError as e:
     raise gym.error.DependencyNotInstalled("{}. (HINT: you need to install mujoco_py, and also perform the setup instructions here: https://github.com/openai/mujoco-py/.)".format(e))
+
+
+def load_gofar(model_name="/mnt/tmp_nfs_clientshare/jasonyma/gofar-big3"):
+    modelpath = os.path.join(model_name, "snapshot.pt")
+    configpath = os.path.join(model_name, "hydra/config.yaml")
+    modelcfg = omegaconf.OmegaConf.load(configpath)
+    modelcfg.agent["_target_"] = "vil.models.models_gofar.GoFAR" # hack
+    embedding =  hydra.utils.instantiate(modelcfg.agent)
+
+    embedding = torch.nn.DataParallel(embedding)
+    embedding_dim = embedding.module.hidden_dim
+    payload = torch.load(modelpath, map_location=torch.device('cpu'))
+    embedding.load_state_dict(payload['r3m'])
+    print(f"Loaded {model_name} encoder, embedding_dim {embedding_dim}!")
+    return embedding 
 
 def get_sim(model_path:str=None, model_xmlstr=None):
     """
@@ -143,6 +162,7 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
         self.obs_dim = observation.size
         self.observation_space = gym.spaces.Box(obs_range[0]*np.ones(self.obs_dim), obs_range[1]*np.ones(self.obs_dim), dtype=np.float32)
 
+
         return
 
     def _setup_rgb_encoders(self, obs_keys, device=None):
@@ -182,13 +202,15 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
                 self.rgb_encoder = load_r3m("resnet34")
             elif id_encoder == "r3m50":
                 self.rgb_encoder = load_r3m("resnet50")
+            elif id_encoder == "gofar":
+                self.rgb_encoder = load_gofar()
             else:
                 raise ValueError("Unsupported visual encoder: {}".format(id_encoder))
             self.rgb_encoder.eval()
             self.rgb_encoder.to(self.device_encoder)
 
             # Load tranfsormms
-            if id_encoder[:3] == 'r3m':
+            if id_encoder[:3] == 'r3m' or id_encoder == "gofar":
                 if wxh == "224x224":
                     self.rgb_transform = T.Compose([T.ToTensor()]) # ToTensor() divides by 255
                 else:
@@ -246,6 +268,9 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
             self.obs_dict.update(visual_obs_dict)
 
         # recoved observation vector from the obs_dict
+        # from ipdb import set_trace
+        # set_trace()
+        # obs = self.obs_dict['rgb:top_cam:240x424:2d']
         t, obs = self.obsdict2obsvec(self.obs_dict, self.obs_keys)
         return obs
 
@@ -284,9 +309,11 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
                     rgb_encoded = img.reshape(-1)
                 elif rgb_encoder_id == '2d':
                     rgb_encoded = img
-                elif rgb_encoder_id[:3] == 'r3m':
+                elif rgb_encoder_id[:3] == 'r3m' or rgb_encoder_id == 'gofar':
                     with torch.no_grad():
-                        rgb_encoded = 255.0 * self.rgb_transform(img[0]).reshape(-1, 3, 224, 224)
+                        # print(img.shape)
+                        img = Image.fromarray(img[0].astype(np.uint8))
+                        rgb_encoded = 255.0 * self.rgb_transform(img).reshape(-1, 3, 224, 224)
                         rgb_encoded.to(self.device_encoder)
                         rgb_encoded = self.rgb_encoder(rgb_encoded).cpu().numpy()
                         rgb_encoded = np.squeeze(rgb_encoded)
@@ -405,6 +432,7 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
         Reset the environment
         Default implemention provided. Override if env needs custom reset
         """
+        
         qpos = self.init_qpos.copy() if reset_qpos is None else reset_qpos
         qvel = self.init_qvel.copy() if reset_qvel is None else reset_qvel
         self.robot.reset(qpos, qvel)
