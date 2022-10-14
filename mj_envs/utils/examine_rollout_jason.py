@@ -25,16 +25,11 @@ import os
 import skvideo.io
 
 
-# Jason: MAKE SURE RECORD HAS GAIN 0.0, and RECOVER HAS GAIN 0.5
-# python examine_rollout.py -e FrankaReachRandom-v0 -m record -on jason 
-# python examine_rollout.py -e FrankaReachRandom-v0 -m recover
-
-#
-#
-
 @click.command(help=DESC)
 # @click.option('-e', '--env_name', type=str, help='environment to load', default="FrankaReachFixed_v2d-v0")
-@click.option('-e', '--env_name', type=str, help='environment to load', default="rpFrankaRobotiqData04-v0")
+# @click.option('-e', '--env_name', type=str, help='environment to load', default="rpFrankaRobotiqData04-v0")
+@click.option('-e', '--env_name', type=str, help='environment to load', default="rpFrankaRobotiqDataPenn-v0")
+
 @click.option('-p', '--rollout_path', type=str, help='absolute path of the rollout', default=None)
 @click.option('-m', '--mode', type=click.Choice(['record', 'render', 'playback', 'recover']), help='How to examine rollout', default='record')
 @click.option('-k', '--keyboard', type=bool, help='use keyboard input', default=False)
@@ -43,7 +38,7 @@ import skvideo.io
 @click.option('-n', '--num_repeat', type=int, help='number of repeats for the rollouts', default=1)
 @click.option('-r', '--render', type=click.Choice(['onscreen', 'offscreen', 'none']), help='visualize onscreen or offscreen', default='none')
 @click.option('-c', '--camera_name', type=str, default='top_cam', help=('Camera name for rendering'))
-@click.option('-o', '--output_dir', type=str, default='/mnt/robopen_dataset/jasonyma_dataset', help=('Directory to save the outputs'))
+@click.option('-o', '--output_dir', type=str, default='/home/jasonyma/Code/robopen_dataset/', help=('Directory to save the outputs'))
 @click.option('-on', '--output_name', type=str, default="jason", help=('The name to save the outputs as'))
 @click.option('-sp', '--save_paths', type=bool, default=True, help=('Save the rollout paths'))
 @click.option('-cp', '--compress_paths', type=bool, default=False, help=('compress paths. Remove obs and env_info/state keys'))
@@ -135,7 +130,7 @@ def main(env_name, rollout_path, mode, keyboard, horizon, seed, num_repeat, rend
                 if keyboard:
                     sen = ky.get_sensor()
                     if sen is not None:
-                        # print(sen, end=", ", flush=True)
+                        print(sen, end=", ", flush=True)
                         if sen == 'up' or sen == "b":
                             sen_last = -1
                         elif sen=='down' or sen == "a":

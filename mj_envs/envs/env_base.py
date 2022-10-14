@@ -20,7 +20,7 @@ from os import path
 import skvideo.io
 from sys import platform
 
-from r3m import load_r3m
+# from r3m import load_r3m
 
 import hydra
 import omegaconf
@@ -128,6 +128,7 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
                            **kwargs)
 
         #resolve action space
+        print(frame_skip)
         self.frame_skip = frame_skip
         self.normalize_act = normalize_act
         act_low = -np.ones(self.sim.model.nu) if self.normalize_act else self.sim.model.actuator_ctrlrange[:,0].copy()
@@ -205,13 +206,16 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
                 self.rgb_encoder = load_r3m("resnet50")
             elif id_encoder == "gofar":
                 self.rgb_encoder = load_gofar()
+            elif id_encoder == "vip":
+                from vip import load_vip
+                self.rgb_encoder = load_vip()
             else:
                 raise ValueError("Unsupported visual encoder: {}".format(id_encoder))
             self.rgb_encoder.eval()
             self.rgb_encoder.to(self.device_encoder)
 
             # Load tranfsormms
-            if id_encoder[:3] == 'r3m' or id_encoder == "gofar":
+            if id_encoder[:3] == 'r3m' or id_encoder == "gofar" or id_encoder == "vip":
                 if wxh == "224x224":
                     self.rgb_transform = T.Compose([T.ToTensor()]) # ToTensor() divides by 255
                 else:
@@ -310,7 +314,7 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
                     rgb_encoded = img.reshape(-1)
                 elif rgb_encoder_id == '2d':
                     rgb_encoded = img
-                elif rgb_encoder_id[:3] == 'r3m' or rgb_encoder_id == 'gofar':
+                elif rgb_encoder_id[:3] == 'r3m' or rgb_encoder_id == 'gofar'or rgb_encoder_id == 'vip':
                     with torch.no_grad():
                         # print(img.shape)
                         img = Image.fromarray(img[0].astype(np.uint8))

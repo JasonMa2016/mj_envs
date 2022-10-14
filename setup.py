@@ -27,7 +27,8 @@ setup(
     install_requires=[
         'click',
         'gym==0.13',
-        'mujoco-py<2.2,>=2.1',
+        # 'mujoco-py<2.2,>=2.1',
+        'mujoco-py==2.0.2.13',
         'termcolor',
         'sk-video',
         'flatten_dict',
@@ -35,6 +36,7 @@ setup(
         'ffmpeg',
         'absl-py',
         'pycapnp==1.1.0',
+        'pyrealsense2',
         # 'r3m @ git+https://github.com/facebookresearch/r3m.git',
         # 'data_tools @ git+https://github.com/fairinternal/data_tools.git',
         'h5py==3.7.0',

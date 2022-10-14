@@ -145,6 +145,9 @@ class Robot():
                 # device['interface'][f"rgb_topic"] = "realsense_828112072870/color/image_raw"
                 device['robot'] = RealSense(name=name, **device['interface'])
 
+            elif device['interface']['type'] == 'realsense_one':
+                from .hardware_realsense_one import RealsenseAPI
+                device['robot'] =RealsenseAPI(**device['interface'])
 
             elif device['interface']['type'] == 'robotiq':
                 from .hardware_robotiq import Robotiq
@@ -169,7 +172,7 @@ class Robot():
                 device['robot'].engage_motor(motor_id=device['actuator_ids'], enable=True)
 
             # Other devices
-            elif device['interface']['type'] in ['optitrack', 'franka', 'realsense', 'robotiq']:
+            elif device['interface']['type'] in ['optitrack', 'franka', 'realsense', 'realsense_one', 'robotiq']:
                 device['robot'].connect()
 
             else:
@@ -286,7 +289,7 @@ class Robot():
                     status = device['robot'].close(ids)
                     if status is True:
                         device['robot']= None
-            elif device['interface']['type'] in ['optitrack', 'franka', 'realsense', 'robotiq']:
+            elif device['interface']['type'] in ['optitrack', 'franka', 'realsense', 'realsense_one', 'robotiq']:
                 if device['robot']:
                     print("Closing {} connection".format(device['interface']['type']))
                     status = device['robot'].close()
@@ -428,7 +431,7 @@ class Robot():
             for ind, cam_name in enumerate(cameras):
                 assert cam_name in self.robot_config.keys(), "{} camera not found".format(cam_name)
                 device = self.robot_config[cam_name]
-                assert device['interface']['type'] == 'realsense', "Check interface type for {}".format(cam)
+                assert 'realsense' in device['interface']['type'], "Check interface type for {}".format(cam)
                 data = device['robot'].get_sensors()
                 data_height = data['rgb'].shape[0]
                 assert data_height == height, "Incorrect image height: required:{}, found:{}".format(height, data_height)

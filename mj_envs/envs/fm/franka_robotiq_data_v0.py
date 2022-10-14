@@ -77,6 +77,7 @@ class FrankaRobotiqData(env_base.MujocoEnv):
         self.nq_ee = nq_ee
         self.ee_sid = self.sim.model.site_name2id(name_ee)
 
+        
         super()._setup(obs_keys=obs_keys,
                        weighted_reward_keys=weighted_reward_keys,
                        frame_skip=40,

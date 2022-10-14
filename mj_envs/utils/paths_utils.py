@@ -179,7 +179,8 @@ def render(rollout_path, render_format:str="mp4", cam_names:list=["left"]):
     # format:           Format to save. Choice['rgb', 'mp4']
     # cam:              list of cameras to render. Example ['left', 'right', 'top', 'Franka_wrist']
 
-    output_dir = "/mnt/tmp_nfs_clientshare/jasonyma/robopen_dataaset/jasonyma_dataset/videos"
+    # output_dir = "/mnt/tmp_nfs_clientshare/jasonyma/robopen_dataaset/jasonyma_dataset/videos"
+    output_dir = "/home/jasonyma/Code/robopen_dataset"
     # output_dir = os.path.dirname(rollout_path)
     rollout_name = os.path.split(rollout_path)[-1]
     output_name, output_type = os.path.splitext(rollout_name)
@@ -254,9 +255,18 @@ def render(rollout_path, render_format:str="mp4", cam_names:list=["left"]):
         # Save video
         if render_format == "mp4":
             file_name = file_name_og + "_{}.mp4".format(i_path)
-            skvideo.io.vwrite(file_name, np.asarray(frames))
+            # skvideo.io.vwrite(file_name, np.asarray(frames))
             print("\nSaving: " + file_name)
-    
+            # from moviepy.editor import ImageSequenceClip
+
+            # cl = ImageSequenceClip(np.asarray(frames), fps=30)
+            # cl.write_gif(file_name_og + "_{}.gif".format(i_path), fps=30)
+
+            imgs = np.asarray(frames)
+            imgs = [Image.fromarray(img) for img in imgs]
+            imgs[0].save(file_name_og + "_{}.gif".format(i_path), save_all=True,
+        append_images=imgs[1:], duration=60, loop=0)
+
     # Save video (all in one)
     # if render_format == "mp4":
     #     file_name = file_name_og + ".mp4"
@@ -435,7 +445,7 @@ Script to recover images and videos from the saved pickle files
 @click.option('-hf', '--h5_format', type=click.Choice(['path', 'dataset']), help='format to save', default="dataset")
 @click.option('-cp', '--compress_path', help='compress paths. Remove obs and env_info/state keys', default=False)
 @click.option('-rf', '--render_format', type=click.Choice(['rgb', 'mp4']), help='format to save', default="mp4")
-@click.option('-cn', '--cam_names', multiple=True, help='camera to render. Eg: left, right, top, Franka_wrist', default=["left", "top", "right", "wrist"])
+@click.option('-cn', '--cam_names', multiple=True, help='camera to render. Eg: left, right, top, Franka_wrist', default=["top"])
 @click.option('-ac', '--add_config', help='Add extra infos to config using as json', default=None)
 @click.option('-mp', '--max_paths', type=int, help='maximum number of paths to process', default=1e6)
 def util_path_cli(util, path, env, output_name, output_dir, verify_output, render_format, cam_names, h5_format, compress_path, add_config, max_paths):

@@ -217,7 +217,7 @@ def get_args():
     parser.add_argument("-i", "--server_ip",
                         type=str,
                         help="IP address or hostname of the franka server",
-                        default="localhost") # 10.0.0.123 # "169.254.163.91",
+                        default="172.16.0.30") # 10.0.0.123 # "169.254.163.91",
     return parser.parse_args()
 
 
