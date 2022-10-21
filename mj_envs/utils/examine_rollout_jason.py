@@ -38,7 +38,7 @@ import skvideo.io
 @click.option('-n', '--num_repeat', type=int, help='number of repeats for the rollouts', default=1)
 @click.option('-r', '--render', type=click.Choice(['onscreen', 'offscreen', 'none']), help='visualize onscreen or offscreen', default='none')
 @click.option('-c', '--camera_name', type=str, default='top_cam', help=('Camera name for rendering'))
-@click.option('-o', '--output_dir', type=str, default='/home/jasonyma/Code/robopen_dataset/', help=('Directory to save the outputs'))
+@click.option('-o', '--output_dir', type=str, default='/home/jasonyma/Code/robopen_dataset/raw_paths', help=('Directory to save the outputs'))
 @click.option('-on', '--output_name', type=str, default="jason", help=('The name to save the outputs as'))
 @click.option('-sp', '--save_paths', type=bool, default=True, help=('Save the rollout paths'))
 @click.option('-cp', '--compress_paths', type=bool, default=False, help=('compress paths. Remove obs and env_info/state keys'))

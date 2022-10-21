@@ -314,6 +314,7 @@ class Robot():
 
         prompt("Reading robot-configurations from %s" % config_path)
         with open(config_path, 'r') as f:
+            print(config_path)
             robot_config = eval(f.read())
 
         for name, device in robot_config.items():

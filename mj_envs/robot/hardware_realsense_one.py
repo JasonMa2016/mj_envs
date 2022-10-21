@@ -83,7 +83,7 @@ class RealsenseAPI:
         return 0
 
 if __name__ == "__main__":
-    cam = RealsenseAPI('046322250541')
+    cam = RealsenseAPI()
     cam.connect()
     print(cam.get_intrinsics_dict())
 

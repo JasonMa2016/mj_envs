@@ -17,7 +17,7 @@ from mj_envs.utils.obj_vec_dict import ObsVecDict
 from mj_envs.utils import tensor_utils
 from mj_envs.robot.robot import Robot
 from os import path
-import skvideo.io
+# import skvideo.io
 from sys import platform
 
 # from r3m import load_r3m
@@ -128,7 +128,6 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
                            **kwargs)
 
         #resolve action space
-        print(frame_skip)
         self.frame_skip = frame_skip
         self.normalize_act = normalize_act
         act_low = -np.ones(self.sim.model.nu) if self.normalize_act else self.sim.model.actuator_ctrlrange[:,0].copy()
