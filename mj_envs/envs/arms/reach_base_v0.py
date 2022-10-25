@@ -8,6 +8,8 @@ License :: Under Apache License, Version 2.0 (the "License"); you may not use th
 import collections
 import gym
 import numpy as np
+import torch 
+from PIL import Image  
 
 from mj_envs.envs import env_base
 
@@ -65,6 +67,26 @@ class ReachBaseV0(env_base.MujocoEnv):
                        frame_skip=frame_skip,
                        **kwargs)
 
+        # create goal embedding
+        self.goal_embedding = None
+        if self.rgb_encoder in ["gofar", "r3m50"]:
+            with torch.no_grad():
+                # hard-coded goal-embedding
+                
+                goal_image = "/mnt/tmp_nfs_clientshare/jasonyma/mj_envs/mj_envs/utils/jason_demo/reach_green_plate20220811-220117_paths_left_0-49.png"
+                # goal_image = "/mnt/tmp_nfs_clientshare/jasonyma/mj_envs/mj_envs/utils/jason_demo/reach_green_plate20220811-212748_paths_left_0-49.png"
+                # goal_image = "/mnt/tmp_nfs_clientshare/jasonyma/mj_envs/mj_envs/utils/jason_demo/close_drawer20220811-211225_paths_top_0-49.png"
+                # goal_image = "/mnt/tmp_nfs_clientshare/jasonyma/mj_envs/mj_envs/utils/jason_demo/close_white_cabinet20220811-200446_paths_top_0-38.png"
+                # goal_image = "/mnt/tmp_nfs_clientshare/jasonyma/mj_envs/mj_envs/utils/jason_demo/close_white_cabinet20220811-192349_paths_top_0-49.png"
+                # goal_image = "/mnt/tmp_nfs_clientshare/jasonyma/mj_envs/mj_envs/utils/jason_demo/close_white_cabinet20220811-190711_paths_top_0-49.png"
+                # goal_image = "/mnt/tmp_nfs_clientshare/jasonyma/mj_envs/mj_envs/utils/jason_demo/get_horizontal_init20220811-145643_paths_top_0-42.png" # open
+                img = Image.open(goal_image)
+                # img = Image.fromarray(img[0].astype(np.uint8))
+                rgb_encoded = 255.0 * self.rgb_transform(img).reshape(-1, 3, 224, 224)
+                rgb_encoded.to(self.device_encoder)
+                rgb_encoded = self.rgb_encoder(rgb_encoded).cpu().numpy()
+                self.goal_embedding = np.squeeze(rgb_encoded)
+                # print(self.goal_embedding.shape)
 
     def get_obs_dict(self, sim):
         obs_dict = {}
@@ -93,6 +115,24 @@ class ReachBaseV0(env_base.MujocoEnv):
         return rwd_dict
 
     def reset(self, reset_qpos=None, reset_qvel=None):
+        # Add manual reset positions here!
+        # reset_qpos = np.array([-0.318 ,  0.0186,  1.007 , -2.7084, -1.3307, -0.1815, -1.1835,
+        # 0.    ,  0.    ])
+        # reset_qpos = np.array([0.3757, 1.0852, 0.0092, -1.5276, -1.6599, 0.081, -1.2109, 0., 0.])
+        # reset_qpos = np.array([ 0.3362,  1.1408,  0.0097, -1.4155, -1.7049,  0.0144, -1.239,   0.,      0.    ])
+        
+        # close white cabinet
+        # reset_qpos = np.array([0.3326,  1.3868,  0.1608, -0.8501, -1.2601, -0.2747, -1.5374,  0.,      0.,    ])
+        # reset_qvel = np.array([0., 0., 0., 0., 0., 0., 0., 0., 0.])
+
+        # close white drawer
+        # reset_qpos = np.array([ 0.9638,  0.961,  -0.1531, -1.5624, -1.0397, -0.2227, -1.424,   0.,      0.    ])
+        # reset_qvel = np.array([0., 0., 0., 0., 0., 0., 0., 0., 0.])
+
+        # reach green plate (left)
+        # reset_qpos = np.array([-0.4396, -0.0982,  0.5941, -2.2897,  0.0242,  0.725,  -1.5521,  0.,      0.    ])
+        # reset_qvel = np.array([0., 0., 0., 0., 0., 0., 0., 0., 0.])
+        
         self.sim.model.site_pos[self.target_sid] = self.np_random.uniform(high=self.target_xyz_range['high'], low=self.target_xyz_range['low'])
         self.sim_obsd.model.site_pos[self.target_sid] = self.sim.model.site_pos[self.target_sid]
         obs = super().reset(reset_qpos, reset_qvel)

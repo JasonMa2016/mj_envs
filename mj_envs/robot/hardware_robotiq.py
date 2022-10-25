@@ -94,7 +94,7 @@ class Robotiq(hardwareBase):
 
     def apply_commands(self, width:float, speed:float=0.1, force:float=0.1):
         assert width>=0.0 and width<=self.max_width, "Gripper desired width ({}) is out of bound (0,{})".format(width, self.max_width)
-        self.robot.goto(width=width, speed=speed, force=force)
+        self.robot.goto(width=width, speed=speed, force=force, blocking=False)
         return 0
 
 
@@ -106,7 +106,7 @@ def get_args():
     parser.add_argument("-i", "--server_ip",
                         type=str,
                         help="IP address or hostname of the franka server",
-                        default="localhost") # 172.16.0.1
+                        default="172.16.0.30") # 172.16.0.1
 
     return parser.parse_args()
 
@@ -133,6 +133,7 @@ if __name__ == "__main__":
 
     # Close gripper
     des_width = 0.0
+    print("close")
     rbq.apply_commands(width=des_width)
     time.sleep(2)
     curr_width = rbq.get_sensors()

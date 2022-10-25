@@ -17,6 +17,15 @@ from mj_envs.utils.dict_utils import flatten_dict, dict_numpify
 import json
 
 
+import torch
+import torchvision
+import torchvision.transforms as T
+from torchvision.utils import save_image
+
+torch_transforms = T.Compose([T.Resize(256),
+                        T.CenterCrop(224),
+                        T.ToTensor()])
+
 # Useful to check the horizon for teleOp / Hardware experiments
 def plot_horizon(paths, env, fileName_prefix=None):
     import matplotlib as mpl
@@ -170,10 +179,12 @@ def render(rollout_path, render_format:str="mp4", cam_names:list=["left"]):
     # format:           Format to save. Choice['rgb', 'mp4']
     # cam:              list of cameras to render. Example ['left', 'right', 'top', 'Franka_wrist']
 
-    output_dir = os.path.dirname(rollout_path)
+    # output_dir = "/mnt/tmp_nfs_clientshare/jasonyma/robopen_dataaset/jasonyma_dataset/videos"
+    output_dir = "/home/jasonyma/Code/robopen_dataset"
+    # output_dir = os.path.dirname(rollout_path)
     rollout_name = os.path.split(rollout_path)[-1]
     output_name, output_type = os.path.splitext(rollout_name)
-    file_name = os.path.join(output_dir, output_name+"_"+"-".join(cam_names))
+    file_name_og = os.path.join(output_dir, output_name+"_"+"-".join(cam_names))
 
     # resolve data format
     if output_type=='.h5':
@@ -211,6 +222,7 @@ def render(rollout_path, render_format:str="mp4", cam_names:list=["left"]):
             height, width, _ = data[cam_keys[0]][0].shape
             frame_tile = np.zeros((height, width*len(cam_keys), 3), dtype=np.uint8)
             if render_format == "mp4":
+                # frames = np.zeros((path_horizon*len(paths), height, width*len(cam_keys), 3), dtype=np.uint8)
                 frames = np.zeros((path_horizon, height, width*len(cam_keys), 3), dtype=np.uint8)
 
         # Render
@@ -221,19 +233,45 @@ def render(rollout_path, render_format:str="mp4", cam_names:list=["left"]):
                 frame_tile[:,i_cam*width:(i_cam+1)*width, :] = data[cam_key][t]
             # process single frame
             if render_format == "mp4":
+                # frames[t+path_horizon*i_path,:,:,:] = frame_tile
                 frames[t,:,:,:] = frame_tile
-            elif render_format == "rgb":
+            if t == path_horizon-1:
                 image = Image.fromarray(frame_tile)
-                image.save(file_name+"_{}-{}.png".format(i_path, t))
-            else:
-                raise TypeError("Unknown format")
+                image.save(file_name_og+"_{}-{}.png".format(i_path, t))
+                image_cropped = torch_transforms(image)
+                save_image(image_cropped, file_name_og+"_{}-{}_cropped.png".format(i_path, t))
+
+            # elif render_format == "rgb":
+            #     if t == path_horizon-1:
+            #         image = Image.fromarray(frame_tile)
+            #         image.save(file_name_og+"_{}-{}.png".format(i_path, t))
+            #         image_cropped = torch_transforms(image)
+            #         save_image(image_cropped, file_name_og+"_{}-{}_cropped.png".format(i_path, t))
+            # else:
+            #     raise TypeError("Unknown format")
+
             print(t, end=",", flush=True)
 
         # Save video
         if render_format == "mp4":
-            file_name_mp4 = file_name+"_{}.mp4".format(i_path)
-            skvideo.io.vwrite(file_name_mp4, np.asarray(frames))
-            print("\nSaving: " + file_name_mp4)
+            file_name = file_name_og + "_{}.mp4".format(i_path)
+            # skvideo.io.vwrite(file_name, np.asarray(frames))
+            print("\nSaving: " + file_name)
+            # from moviepy.editor import ImageSequenceClip
+
+            # cl = ImageSequenceClip(np.asarray(frames), fps=30)
+            # cl.write_gif(file_name_og + "_{}.gif".format(i_path), fps=30)
+
+            imgs = np.asarray(frames)
+            imgs = [Image.fromarray(img) for img in imgs]
+            imgs[0].save(file_name_og + "_{}.gif".format(i_path), save_all=True,
+        append_images=imgs[1:], duration=60, loop=0)
+
+    # Save video (all in one)
+    # if render_format == "mp4":
+    #     file_name = file_name_og + ".mp4"
+    #     skvideo.io.vwrite(file_name, np.asarray(frames))
+    #     print("\nSaving: " + file_name)
 
 
 # parse path from robohive format into robopen dataset format
@@ -257,6 +295,9 @@ def path2dataset(path:dict, config_path=None)->dict:
         if key in obs_keys:
             dataset['data/'+key] = path['env_infos']['obs_dict'][key]
 
+    dataset['data/qpos'] = path['env_infos']['state']['qpos']
+    dataset['data/qvel'] = path['env_infos']['state']['qvel']
+    
     # cams
     for cam in ['left', 'right', 'top', 'wrist']:
         for key in obs_keys:
@@ -387,13 +428,15 @@ def pickle2h5(rollout_path, output_dir=None, verify_output=False, h5_format:str=
     print("Finished Processing")
 
 
+# python paths_utils.py -u render -p /mnt/tmp_nfs_clientshare/jasonyma/mj_envs/mj_envs/utils/jason20220809-202612_paths.pickle -cn left -cn right -cn top
+
 DESC="""
 Script to recover images and videos from the saved pickle files
  - python utils/paths_utils.py -u render -p paths.pickle -rf mp4 -cn right
  - python utils/paths_utils.py -u pickle2h5 -p paths.pickle -vo True -cp True -hf dataset
  """
 @click.command(help=DESC)
-@click.option('-u', '--util', type=click.Choice(['plot_horizon', 'plot', 'render', 'pickle2h5', 'h5schema']), help='pick utility', required=True)
+@click.option('-u', '--util', type=click.Choice(['plot_horizon', 'plot', 'render', 'pickle2h5', 'h5schema']), help='pick utility', default="render")
 @click.option('-p', '--path', type=click.Path(exists=True), help='absolute path of the rollout (h5/pickle)', default=None)
 @click.option('-e', '--env', type=str, help='Env name', default=None)
 @click.option('-on', '--output_name', type=str, default=None, help=('Output name'))
@@ -402,11 +445,10 @@ Script to recover images and videos from the saved pickle files
 @click.option('-hf', '--h5_format', type=click.Choice(['path', 'dataset']), help='format to save', default="dataset")
 @click.option('-cp', '--compress_path', help='compress paths. Remove obs and env_info/state keys', default=False)
 @click.option('-rf', '--render_format', type=click.Choice(['rgb', 'mp4']), help='format to save', default="mp4")
-@click.option('-cn', '--cam_names', multiple=True, help='camera to render. Eg: left, right, top, Franka_wrist', default=["left", "top", "right", "wrist"])
+@click.option('-cn', '--cam_names', multiple=True, help='camera to render. Eg: left, right, top, Franka_wrist', default=["top"])
 @click.option('-ac', '--add_config', help='Add extra infos to config using as json', default=None)
 @click.option('-mp', '--max_paths', type=int, help='maximum number of paths to process', default=1e6)
 def util_path_cli(util, path, env, output_name, output_dir, verify_output, render_format, cam_names, h5_format, compress_path, add_config, max_paths):
-
     if util=='plot_horizon':
         fileName_prefix = os.join(output_dir, output_name)
         plot_horizon(path, env, fileName_prefix)

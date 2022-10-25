@@ -22,7 +22,7 @@ register(
     max_episode_steps=50, #50steps*40Skip*2ms = 4s
     kwargs={
         'model_path': curr_dir+'/franka/assets/franka_reach_v0.xml',
-        'config_path': curr_dir+'/franka/assets/franka_reach_v0.config',
+        'config_path': curr_dir+'/franka/assets/franka_reach_v0-04.config',
         'robot_site_name': "end_effector",
         'target_site_name': "target",
         'target_xyz_range': {'high':[0.2, 0.3, 1.2], 'low':[0.2, 0.3, 1.2]}
@@ -36,7 +36,7 @@ register(
     max_episode_steps=50, #50steps*40Skip*2ms = 4s
     kwargs={
         'model_path': curr_dir+'/franka/assets/franka_reach_v0.xml',
-        'config_path': curr_dir+'/franka/assets/franka_reach_v0.config',
+        'config_path': curr_dir+'/franka/assets/franka_reach_v0-04.config',
         'robot_site_name': "end_effector",
         'target_site_name': "target",
         'target_xyz_range': {'high':[0.3, .5, 1.2], 'low':[-.3, .1, .8]}
@@ -44,20 +44,36 @@ register(
 )
 
 # Reach to random target using visual inputs
+def register_visual_envs_fixed(encoder_type):
+    register_env_variant(
+        env_id='FrankaReachFixed-v0',
+        variant_id='FrankaReachFixed_v{}-v0'.format(encoder_type),
+        variants={'obs_keys':
+                    ['qp', 'qv',
+                    "rgb:left_cam:240x424:{}".format(encoder_type),
+                    "rgb:right_cam:240x424:{}".format(encoder_type),
+                    "rgb:top_cam:240x424:{}".format(encoder_type)
+                    ]
+        },
+        silent=True
+    )
+
 def register_visual_envs(encoder_type):
     register_env_variant(
         env_id='FrankaReachRandom-v0',
         variant_id='FrankaReachRandom_v{}-v0'.format(encoder_type),
         variants={'obs_keys':
                     ['qp', 'qv',
-                    "rgb:left_cam:224x224:{}".format(encoder_type),
-                    "rgb:right_cam:224x224:{}".format(encoder_type),
-                    "rgb:top_cam:224x224:{}".format(encoder_type)]
+                    "rgb:left_cam:240x424:{}".format(encoder_type),
+                    "rgb:right_cam:240x424:{}".format(encoder_type),
+                    "rgb:top_cam:240x424:{}".format(encoder_type)
+                    ]
         },
         silent=True
     )
-for enc in ["r3m18", "r3m34", "r3m50", "flat"]:
+for enc in ["r3m18", "r3m34", "r3m50", "gofar", "flat", "2d"]:
     register_visual_envs(enc)
+    register_visual_envs_fixed(enc)
 
 
 
