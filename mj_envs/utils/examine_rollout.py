@@ -142,7 +142,6 @@ def main(env_name, rollout_path, mode, keyboard, horizon, seed, num_repeat, rend
                 else:
                     raise TypeError("Unknown path type")
             else:
- 
                 env.reset()
 
             # Rollout
@@ -151,6 +150,7 @@ def main(env_name, rollout_path, mode, keyboard, horizon, seed, num_repeat, rend
                 path_horizon = horizon if mode == 'record' else data['qp_arm'].shape[0]
             else:
                 path_horizon = horizon if mode == 'record' else path['actions'].shape[0]
+
             for i_step in range(path_horizon):
                 print(i_step)
                 # Record Execution. Useful for kinesthetic demonstrations on hardware

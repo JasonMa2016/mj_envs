@@ -25,7 +25,7 @@ except ImportError as e:
     raise ImportError("(HINT: you need to install mujoco_py, and also perform the setup instructions here: https://github.com/openai/mujoco-py/.)")
 try:
     from vtils.input.keyboard import KeyInput as KeyBoard
-    from vtils.input.spacemouse import SpaceMouse
+    # from vtils.input.spacemouse import SpaceMouse
 except ImportError as e:
     raise ImportError("Please install vtils -- https://github.com/vikashplus/vtils")
 
@@ -77,37 +77,59 @@ def poll_keyboard(input_device):
 
     return delta_pos, delta_euler, delta_gripper, done
 
-
-# Poll and process spacemouse values
-def poll_spacemouse(input_device):
+def poll_xbox(input_device):
     # get sensors
     sen = input_device.get_sensors()
 
     # exit request
-    done = True if (sen['left'] and sen['right']) else False
+    done = True if sen=='esc' else False
 
     # gripper
-    if sen['left'] == True:
+    if sen == '[':
         delta_gripper = -1
-    elif sen['right'] == True:
+    elif sen == ']':
         delta_gripper = 1
     else:
         delta_gripper = 0
 
     # positions
-    delta_pos = np.array([sen['x'], sen['y'], sen['z']])
+    delta_pos = np.array([0, 0, 0])
+    if sen == 'd':
+        delta_pos[0] = 1
+    elif sen == 'a':
+        delta_pos[0] = -1
+    elif sen == 'w':
+        delta_pos[1] = 1
+    elif sen == 'x':
+        delta_pos[1] = -1
+    elif sen == 'q':
+        delta_pos[2] = 1
+    elif sen == 'z':
+        delta_pos[2] = -1
 
     # rotations
-    delta_euler = np.array([sen['roll'], sen['pitch'], sen['yaw']])
+    delta_euler = np.array([0, 0, 0])
+    if sen == 'up':
+        delta_euler[0] = -1
+    elif sen == 'down':
+        delta_euler[0] = 1
+    elif sen == 'left':
+        delta_euler[1] = -1
+    elif sen == 'right':
+        delta_euler[1] = 1
+    elif sen == ',':
+        delta_euler[2] = -1
+    elif sen == '.':
+        delta_euler[2] = 1
 
     return delta_pos, delta_euler, delta_gripper, done
 
 
 @click.command(help=DESC)
-@click.option('-e', '--env_name', type=str, help='environment to load', default='rpFrankaRobotiqData00-v0')
-@click.option('-ea', '--env_args', type=str, default=None, help=('env args. E.g. --env_args "{\'is_hardware\':True}"'))
-@click.option('-i', '--input_device', type=click.Choice(['keyboard', 'spacemouse']), help='input to use for teleOp', default='keyboard')
-@click.option('-h', '--horizon', type=int, help='Rollout horizon', default=100)
+@click.option('-e', '--env_name', type=str, help='environment to load', default='rpFrankaRobotiqDataPenn-v0')
+@click.option('-ea', '--env_args', type=str, default="{\'is_hardware\':True}", help=('env args. E.g. --env_args "{\'is_hardware\':True}"'))
+@click.option('-i', '--input_device', type=click.Choice(['keyboard', 'xbox']), help='input to use for teleOp', default='keyboard')
+@click.option('-h', '--horizon', type=int, help='Rollout horizon', default=500)
 @click.option('-n', '--num_rollouts', type=int, help='number of repeats for the rollouts', default=1)
 @click.option('-s', '--seed', type=int, help='seed for generating environment instances', default=123)
 @click.option('-gs', '--goal_site', type=str, help='Site that updates as goal using inputs', default='ee_target')
@@ -124,6 +146,7 @@ def poll_spacemouse(input_device):
 # @click.option('-ry', '--pitch_range', type=tuple, default=(-0.5, 0.5), help=('pitch range'))
 # @click.option('-rz', '--yaw_range', type=tuple, default=(-0.5, 0.5), help=('yaw range'))
 # @click.option('-gr', '--gripper_range', type=tuple, default=(0, 1), help=('z range'))
+
 def main(env_name, env_args, input_device, horizon, num_rollouts, seed, goal_site, teleop_site, pos_scale, rot_scale, gripper_scale, vendor_id, product_id):
     # x_range, y_range, z_range, roll_range, pitch_range, yaw_range, gripper_range
 
@@ -131,17 +154,14 @@ def main(env_name, env_args, input_device, horizon, num_rollouts, seed, goal_sit
     np.random.seed(seed)
     env = gym.make(env_name) if env_args==None else gym.make(env_name, **(eval(env_args)))
     env.seed(seed)
-    env.env.mujoco_render_frames = True
+    env.env.mujoco_render_frames = False
     goal_sid = env.sim.model.site_name2id(goal_site)
     env.sim.model.site_rgba[goal_sid][3] = 0.2 # make visible
 
     # prep input device
     if input_device=='keyboard':
         input = KeyBoard()
-    elif input_device=='spacemouse':
-        input = SpaceMouse(vendor_id=vendor_id, product_id=product_id)
 
-        print("Press both keys to stop listening")
     done = False
 
     # default actions
