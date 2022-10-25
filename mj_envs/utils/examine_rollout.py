@@ -15,11 +15,12 @@ USAGE:\n
 '''
 
 import gym
-# from mj_envs.utils.viz_paths import plot_paths as plotnsave_paths
+from mj_envs.utils.paths_utils import plot as plotnsave_paths
 from mj_envs.utils import tensor_utils
 import click
 import numpy as np
 import pickle
+import h5py
 import time
 import os
 import skvideo.io
@@ -71,13 +72,22 @@ def main(env_name, rollout_path, mode, keyboard, horizon, seed, num_repeat, rend
         if rollout_path is not None:
             rollout_path = pickle.load(open(rollout_path, 'rb'))
     else:
+
         assert rollout_path is not None, "Rollout path is required for mode:{} ".format(mode)
-        paths = pickle.load(open(rollout_path, 'rb'))
         if output_dir == './': # overide the default
             output_dir = os.path.dirname(rollout_path)
         if output_name is None:
             rollout_name = os.path.split(rollout_path)[-1]
-            output_name = os.path.splitext(rollout_name)[0]
+        output_name, output_type = os.path.splitext(rollout_name)
+        # file_name = os.path.join(output_dir, output_name+"_"+"-".join(cam_names))
+
+        # resolve data format
+        if output_type=='.h5':
+            paths = h5py.File(rollout_path, 'r')
+        elif output_type=='.pickle':
+            paths = pickle.load(open(rollout_path, 'rb'))
+        else:
+            raise TypeError("Unknown path format. Check file")
 
     # resolve rendering
     if render == 'onscreen':
@@ -105,6 +115,13 @@ def main(env_name, rollout_path, mode, keyboard, horizon, seed, num_repeat, rend
         ep_rwd = 0.0
         for i_path, path in enumerate(paths):
 
+            if output_type=='.h5':
+                data = paths[path]['data']
+                path_horizon = data['ctrl_arm'].shape[0]
+            else:
+                data = path['env_infos']['obs_dict']
+                path_horizon = path['env_infos']['time'].shape[0]
+
             # initialize buffers
             ep_t0 = time.time()
             obs = []
@@ -114,25 +131,26 @@ def main(env_name, rollout_path, mode, keyboard, horizon, seed, num_repeat, rend
             states = []
 
             # initialize env to the starting position
-            if path and "state" in path['env_infos'].keys():
-                # print(path['env_infos']['state']['qpos'][0], path['env_infos']['state']['qvel'][0])
-                env.reset(reset_qpos=path['env_infos']['state']['qpos'][0], reset_qvel=path['env_infos']['state']['qvel'][0])
-            elif mode == "record" and rollout_path is not None: 
-                print("HERE")
-                env.env.robot.robot_config['franka']['robot'].gain_scale = 0.5
-                env.env.robot.robot_config['franka']['robot'].reconnect()
-                env.reset(reset_qpos=rollout_path[0]['env_infos']['state']['qpos'][0], reset_qvel=rollout_path[0]['env_infos']['state']['qvel'][0])
-                # time.sleep(2)
-                env.env.robot.robot_config['franka']['robot'].gain_scale = 0.0
-                env.env.robot.robot_config['franka']['robot'].reconnect()
+            if path:
+                if output_type=='.h5':
+                    reset_qpos = env.init_qpos.copy()
+                    reset_qpos[:7] = data['qp_arm'][0]
+                    reset_qpos[7] = data['qp_ee'][0]
+                    env.reset(reset_qpos=reset_qpos)
+                elif output_type=='.pickle' and "state" in path['env_infos'].keys():
+                    env.reset(reset_qpos=path['env_infos']['state']['qpos'][0], reset_qvel=path['env_infos']['state']['qvel'][0])
+                else:
+                    raise TypeError("Unknown path type")
             else:
  
                 env.reset()
 
             # Rollout
             o = env.get_obs()
-            sen_last = -1
-            path_horizon = horizon if mode == 'record' else path['actions'].shape[0]
+            if output_type=='.h5':
+                path_horizon = horizon if mode == 'record' else data['qp_arm'].shape[0]
+            else:
+                path_horizon = horizon if mode == 'record' else path['actions'].shape[0]
             for i_step in range(path_horizon):
                 print(i_step)
                 # Record Execution. Useful for kinesthetic demonstrations on hardware
@@ -166,7 +184,10 @@ def main(env_name, rollout_path, mode, keyboard, horizon, seed, num_repeat, rend
 
                 # Apply actions in open loop
                 elif mode=='playback':
-                    a = path['actions'][i_step]
+                    if output_type=='.h5':
+                        a = np.concatenate([data['ctrl_arm'][i_step], data['ctrl_ee'][i_step]])
+                    else:
+                        a = path['actions'][i_step] if output_type=='.pickle' else path['data']['ctrl_arm']
                     onext, r, d, info = env.step(a) # t ==> t+1
 
                 # Recover actions from states

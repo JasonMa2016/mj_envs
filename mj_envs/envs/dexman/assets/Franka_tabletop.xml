@@ -14,7 +14,8 @@
     <include file="../../../sims/furniture_sim/ventionTable/ventionTable_asset.xml"/>
     <include file="../../../sims/franka_sim/assets/assets.xml"/>
     <include file="../../../sims/franka_sim/assets/actuator0.xml"/>
-    <include file="../../../sims/robotiq_sim/assets/assets.xml"/>
+    <include file="../../../sims/franka_sim/assets/gripper_actuator0.xml"/>
+    <include file="../../../sims/franka_sim/assets/gripper_assets.xml"/>
 
     <compiler inertiafromgeom="auto" inertiagrouprange="3 4" angle="radian" meshdir="../../../sims/franka_sim" texturedir="../../../sims/franka_sim"/>
 
@@ -28,7 +29,7 @@
         <!-- Franka Arm-->
         <site name='ee_target' type='box' size='.03 .07 .04' pos='0.4 0 1' group='1' rgba='0 1 .4 0' euler="0 3.14 3.14"/>
         <body pos='0 0 .823' euler='0 0 0'>
-            <include file="../../../sims/franka_sim/assets/chain0_nogripper.xml"/>
+            <include file="../../../sims/franka_sim/assets/chain0.xml"/>
         </body>
 
         <!-- Tables -->
@@ -39,11 +40,11 @@
             <include file="../../../sims/furniture_sim/simpleTable/simpleMarbleTable_body.xml"/>
         </body>
 
-        <!-- Robotiq Hand-->
-        <body name="ee_mount" pos="0 0 .11" euler="0 0 0">
-            <include file="../../../sims/robotiq_sim/assets/chain.xml"/>
-        </body>
-
     </worldbody>
+
+    <keyframe>
+        <key qpos='0.016 -.05 .084 .051 0.036 0.079 .055 0.00 0.0 .5 0 .1 0 0 0'/>
+        <key qpos='0.16 -1.5 1.84 -2.51 0.36 0.79 1.55 0.00 0.0 0 .5 .1 0 0 0'/>
+    </keyframe>
 
 </mujoco>
