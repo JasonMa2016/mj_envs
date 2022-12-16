@@ -27,8 +27,8 @@ setup(
     install_requires=[
         'click',
         'gym==0.13',
-        # 'mujoco-py<2.2,>=2.1',
-        'mujoco-py==2.0.2.13',
+        'mujoco-py<2.2,>=2.1',
+        # 'mujoco-py==2.0.2.13',
         'termcolor',
         'sk-video',
         'flatten_dict',

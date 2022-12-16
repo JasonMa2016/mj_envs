@@ -71,7 +71,7 @@ def register_visual_envs(encoder_type):
         },
         silent=True
     )
-for enc in ["r3m18", "r3m34", "r3m50", "gofar", "flat", "2d"]:
+for enc in ["r3m18", "r3m34", "r3m50", "2d"]:
     register_visual_envs(enc)
     register_visual_envs_fixed(enc)
 

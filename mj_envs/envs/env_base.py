@@ -20,55 +20,13 @@ from os import path
 # import skvideo.io
 from sys import platform
 
-# from r3m import load_r3m
-
-import hydra
-import omegaconf
+from r3m import load_r3m
+from mj_envs.physics.sim_scene import get_sim
 
 # TODO
 # remove rwd_mode
 # convet obs_keys to obs_keys_wt
 # batch images before passing them through the encoder
-
-try:
-    import mujoco_py
-    from mujoco_py import load_model_from_path, MjSim, MjViewer, load_model_from_xml
-except ImportError as e:
-    raise gym.error.DependencyNotInstalled("{}. (HINT: you need to install mujoco_py, and also perform the setup instructions here: https://github.com/openai/mujoco-py/.)".format(e))
-
-
-def load_gofar(model_name="/mnt/tmp_nfs_clientshare/jasonyma/gofar-big3"):
-    modelpath = os.path.join(model_name, "snapshot.pt")
-    configpath = os.path.join(model_name, "hydra/config.yaml")
-    modelcfg = omegaconf.OmegaConf.load(configpath)
-    modelcfg.agent["_target_"] = "vil.models.models_gofar.GoFAR" # hack
-    embedding =  hydra.utils.instantiate(modelcfg.agent)
-
-    embedding = torch.nn.DataParallel(embedding)
-    embedding_dim = embedding.module.hidden_dim
-    payload = torch.load(modelpath, map_location=torch.device('cpu'))
-    embedding.load_state_dict(payload['r3m'])
-    print(f"Loaded {model_name} encoder, embedding_dim {embedding_dim}!")
-    return embedding 
-
-def get_sim(model_path:str=None, model_xmlstr=None):
-    """
-    Get sim using model_path or model_xmlstr.
-    """
-    if model_path:
-        if model_path.startswith("/"):
-            fullpath = model_path
-        else:
-            fullpath = os.path.join(os.path.dirname(__file__), "assets", model_path)
-        if not path.exists(fullpath):
-            raise IOError("File %s does not exist" % fullpath)
-        model = load_model_from_path(fullpath)
-    elif model_xmlstr:
-        model = load_model_from_xml(model_xmlstr)
-    else:
-        raise TypeError("Both model_path and model_xmlstr can't be None")
-
-    return MjSim(model)
 
 class IdentityEncoder(torch.nn.Module):
     def __init__(self):
@@ -118,9 +76,11 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
         if self.sim is None or self.sim_obsd is None:
             raise TypeError("sim and sim_obsd must be instantiated for setup to run")
 
+        # Resolve viewer
         self.mujoco_render_frames = False
         self.device_id = device_id
         self.rwd_viz = rwd_viz
+        self.viewer_setup()
 
         # resolve robot config
         self.robot = Robot(mj_sim=self.sim,
@@ -141,8 +101,8 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
         # self.init_qpos[self.sim.model.jnt_dofadr] = np.mean(self.sim.model.jnt_range, axis=1) if self.normalize_act else self.sim.data.qpos.ravel().copy()
         if self.normalize_act:
             # find all linear+actuated joints. Use mean(jnt_range) as init position
-            actuated_jnt_ids = self.sim.model.actuator_trnid[self.sim.model.actuator_trntype==mujoco_py.generated.const.TRN_JOINT, 0]
-            linear_jnt_ids = np.logical_or(self.sim.model.jnt_type==mujoco_py.generated.const.JNT_SLIDE, self.sim.model.jnt_type==mujoco_py.generated.const.JNT_HINGE)
+            actuated_jnt_ids = self.sim.model.actuator_trnid[self.sim.model.actuator_trntype==self.sim.lib.mjtTrn.mjTRN_JOINT, 0] # dm
+            linear_jnt_ids = np.logical_or(self.sim.model.jnt_type==self.sim.lib.mjtJoint.mjJNT_SLIDE, self.sim.model.jnt_type==self.sim.lib.mjtJoint.mjJNT_HINGE)
             linear_jnt_ids = np.where(linear_jnt_ids==True)[0]
             linear_actuated_jnt_ids = np.intersect1d(actuated_jnt_ids, linear_jnt_ids)
             # assert np.any(actuated_jnt_ids==linear_actuated_jnt_ids), "Wooho: Great evidence that it was important to check for actuated_jnt_ids as well as linear_actuated_jnt_ids"
@@ -159,6 +119,8 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
         self.obs_keys = obs_keys
         self._setup_rgb_encoders(obs_keys, device=None)
         observation, _reward, done, _info = self.step(np.zeros(self.sim.model.nu))
+        # Question: Should we replace above with following? Its specially helpful for hardware as it forces a env reset before continuing, without which the hardware will make a big jump from its position to the position asked by step.
+        # observation = self.reset()
         assert not done, "Check initialization. Simulation starts in a done state."
         self.obs_dim = observation.size
         self.observation_space = gym.spaces.Box(obs_range[0]*np.ones(self.obs_dim), obs_range[1]*np.ones(self.obs_dim), dtype=np.float32)
@@ -339,7 +301,6 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
         Get information about the environment.
         - Essential keys are added below. Users can add more keys
         - Requires necessary keys (dense, sparse, solved, done) in rwd_dict to be populated
-        - Note that entries belongs to different MDP steps
         """
         env_info = {
             'time': self.obs_dict['t'][()],             # MDP(t)
@@ -431,7 +392,7 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
         return self.input_seed
 
 
-    def reset(self, reset_qpos=None, reset_qvel=None):
+    def reset(self, reset_qpos=None, reset_qvel=None, **kwargs):
         """
         Reset the environment
         Default implemention provided. Override if env needs custom reset
@@ -439,7 +400,7 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
         
         qpos = self.init_qpos.copy() if reset_qpos is None else reset_qpos
         qvel = self.init_qvel.copy() if reset_qvel is None else reset_qvel
-        self.robot.reset(qpos, qvel)
+        self.robot.reset(qpos, qvel, **kwargs)
         return self.get_obs()
 
 
@@ -456,25 +417,6 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
     @property
     def horizon(self):
         return self.spec.max_episode_steps # paths could have early termination before horizon
-
-
-    # state utilities ========================================================
-
-    def set_state(self, qpos=None, qvel=None, act=None):
-        """
-        Set MuJoCo sim state
-        """
-        assert qpos.shape == (self.sim.model.nq,) and qvel.shape == (self.sim.model.nv,)
-        old_state = self.sim.get_state()
-        if qpos is None:
-            qpos = old_state.qpos
-        if qvel is None:
-            qvel = old_state.qvel
-        if act is None:
-            act = old_state.act
-        new_state = mujoco_py.MjSimState(old_state.time, qpos=qpos, qvel=qvel, act=act, udd_state={})
-        self.sim.set_state(new_state)
-        self.sim.forward()
 
 
     def get_env_state(self):
@@ -525,52 +467,22 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
     # Vizualization utilities ================================================
 
     def mj_render(self):
-        try:
-            # self.viewer.cam.azimuth+=.1 # trick to rotate camera for 360 videos
-            self.viewer.render()
-        except:
-            self.viewer = MjViewer(self.sim)
-            self.viewer._run_speed = 0.5
-            self.viewer.cam.elevation = -30
-            self.viewer.cam.azimuth = 90
-            self.viewer.cam.distance = 2.5
-            #self.viewer._run_speed /= self.frame_skip
-            self.viewer_setup()
-            self.viewer.render()
-
-
-    def update_camera(self, camera=None, distance=None, azimuth=None, elevation=None, lookat=None):
         """
-        Updates the given camera to move to the provided settings.
+        Render the default camera
         """
-        if not camera:
-            if hasattr(self, 'viewer'):
-                camera = self.viewer.cam
-            else:
-                return
-        if distance is not None:
-            camera.distance = distance
-        if azimuth is not None:
-            camera.azimuth = azimuth
-        if elevation is not None:
-            camera.elevation = elevation
-        if lookat is not None:
-            camera.lookat[:] = lookat
+        self.sim.renderer.render_to_window()
 
 
-    def render_camera_offscreen(self, cameras:list, width:int=640, height:int=480, device_id:int=0, sim=None):
+    def viewer_setup(self, distance=2.5, azimuth=90, elevation=-30, lookat=None):
         """
-        Render images(widthxheight) from a list_of_cameras on the specified device_id.
+        Setup the default camera
         """
-        if sim is None:
-            sim = self.sim_obsd
-        imgs = np.zeros((len(cameras), height, width, 3), dtype=np.uint8)
-        for ind, cam in enumerate(cameras):
-            img = sim.render(width=width, height=height, mode='offscreen', camera_name=cam, device_id=device_id)
-            img = img[::-1, :, : ] # Image has to be flipped
-            imgs[ind, :, :, :] = img
-        return imgs
-
+        self.sim.renderer.set_free_camera_settings(
+                distance=distance,
+                azimuth=azimuth,
+                elevation=elevation,
+                lookat=lookat
+        )
 
     def examine_policy(self,
             policy,
@@ -591,13 +503,12 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
         """
         exp_t0 = timer.time()
 
-        # configure renderer
         if render == 'onscreen':
             self.mujoco_render_frames = True
         elif render =='offscreen':
             self.mujoco_render_frames = False
             frames = np.zeros((horizon, frame_size[1], frame_size[0], 3), dtype=np.uint8)
-        elif render == None:
+        elif render == None or render == 'None' or render == 'none':
             self.mujoco_render_frames = False
 
         # start rollouts
@@ -621,14 +532,13 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
                 ep_rwd += rwd
                 # render offscreen visuals
                 if render =='offscreen':
-                    curr_frame = self.render_camera_offscreen(
-                        sim=self.sim,
-                        cameras=[camera_name],
+                    curr_frame = self.sim.renderer.render_offscreen(
                         width=frame_size[0],
                         height=frame_size[1],
-                        device_id=device_id
-                    )
-                    frames[t,:,:,:] = curr_frame[0]
+                        camera_id=camera_name,
+                        device_id=device_id)
+
+                    frames[t,:,:,:] = curr_frame
                     print(t, end=', ', flush=True)
                 observations.append(o)
                 actions.append(a)
@@ -653,7 +563,7 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
             if render =='offscreen':
                 file_name = output_dir + filename + str(ep) + ".mp4"
                 # check if the platform is OS -- make it compatible with quicktime
-                if platform == "darwin": 
+                if platform == "darwin":
                     skvideo.io.vwrite(file_name, np.asarray(frames),outputdict={"-pix_fmt": "yuv420p"})
                 else:
                     skvideo.io.vwrite(file_name, np.asarray(frames))
@@ -662,6 +572,98 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
         self.mujoco_render_frames = False
         print("Total time taken = %f"% (timer.time()-exp_t0))
         return paths
+
+
+    def examine_policy_new(self,
+            policy,
+            horizon=1000,
+            num_episodes=1,
+            mode='exploration', # options: exploration/evaluation
+            render=None,        # options: onscreen/offscreen/none
+            camera_name=None,
+            frame_size=(640,480),
+            output_dir='/tmp/',
+            filename='newvid',
+            device_id:int=0
+            ):
+        """
+            Examine a policy for behaviors;
+            - either onscreen, or offscreen, or just rollout without rendering.
+            - return resulting paths
+        """
+
+        from mj_envs.logger.grouped_datasets import Trace
+        trace = Trace("Rollout")
+
+        exp_t0 = timer.time()
+
+        if render == 'onscreen':
+            self.mujoco_render_frames = True
+        elif render =='offscreen':
+            self.mujoco_render_frames = False
+            frames = np.zeros((horizon, frame_size[1], frame_size[0], 3), dtype=np.uint8)
+        elif render == None or render == 'None' or render == 'none':
+            self.mujoco_render_frames = False
+
+        # start rollouts
+        for ep in range(num_episodes):
+            ep_t0 = timer.time()
+
+            group_key='Trial'+str(ep); trace.create_group(group_key)
+
+            print("Episode %d" % ep, end=":> ")
+            o = self.reset()
+            done = False
+            t = 0
+            ep_rwd = 0.0
+            while t < horizon and done is False:
+                a = policy.get_action(o)[0] if mode == 'exploration' else policy.get_action(o)[1]['evaluation']
+                next_o, rwd, done, env_info = self.step(a)
+                ep_rwd += rwd
+                # render offscreen visuals
+                if render =='offscreen':
+                    curr_frame = self.sim.renderer.render_offscreen(
+                        width=frame_size[0],
+                        height=frame_size[1],
+                        camera_id=camera_name,
+                        device_id=device_id)
+
+                    frames[t,:,:,:] = curr_frame
+                    print(t, end=', ', flush=True)
+
+                # log values
+                datum_dict = dict(
+                        time=t,
+                        observation=o,
+                        action=a,
+                        reward=rwd,
+                        env_info=env_info,
+                        done=done,
+                    )
+                trace.append_datums(group_key=group_key,
+                    dataset_key_val=datum_dict)
+                o = next_o
+                t = t+1
+                ep_rwd += rwd
+
+            print("Total reward = %3.3f, Total time = %2.3f" % (ep_rwd, timer.time()-ep_t0))
+
+            # save offscreen buffers as video
+            if render =='offscreen':
+                file_name = output_dir + filename + str(ep) + ".mp4"
+                # check if the platform is OS -- make it compatible with quicktime
+                if platform == "darwin":
+                    skvideo.io.vwrite(file_name, np.asarray(frames),outputdict={"-pix_fmt": "yuv420p"})
+                else:
+                    skvideo.io.vwrite(file_name, np.asarray(frames))
+                print("saved", file_name)
+
+        self.mujoco_render_frames = False
+        print("Total time taken = %f"% (timer.time()-exp_t0))
+        trace.save("env_base_trace.h5", verify_length=True)
+        # trace.save("env_base_trace.pickle", verify_length=True)
+        quit()
+        # return trace
 
 
     # methods to override ====================================================
@@ -685,10 +687,3 @@ class MujocoEnv(gym.Env, gym.utils.EzPickle, ObsVecDict):
         Implement this in each subclass.
         """
         raise NotImplementedError
-
-    def viewer_setup(self):
-        """
-        Due to specifics of new mujoco rendering, the standard viewer cannot be used
-        with this set-up. Instead we use this mujoco specific function. Customize your viewer here
-        """
-        pass

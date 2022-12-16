@@ -5,13 +5,13 @@ Source  :: https://github.com/vikashplus/mj_envs
 License :: Under Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
 ================================================= """
 
+from mj_envs.physics.sim_scene import get_sim
+from mj_envs.utils.quat_math import quat2euler
 import time
 from termcolor import cprint
 import numpy as np
 from collections import deque
-from mujoco_py import load_model_from_path, MjSim, functions, ignore_mujoco_warnings
 import os
-from mj_envs.utils.quat_math import quat2euler
 np.set_printoptions(precision=4)
 
 
@@ -22,6 +22,7 @@ _ROBOT_VIZ = False
 # rename robot_config something more meaningful
 # support loading multiple config files
 # seperate ROBOT_VIZ as its own class
+# remap_space() needs rigerous testing
 
 # NOTE/ GOOD PRACTICES ===========================
 # nq should be nv
@@ -71,7 +72,7 @@ class Robot():
         if mj_sim is None:
             # (creates new robot everytime to facilitate parallelization)
             prompt("Preparing robot-sim from %s" % model_path)
-            self.sim = MjSim(load_model_from_path(model_path))
+            self.sim = get_sim(model_handle=model_path)
         else:
             # use provided sim
             self.sim = mj_sim
@@ -140,14 +141,12 @@ class Robot():
                 device['robot'] = FrankaArm(name=name, **device['interface'])
 
             elif device['interface']['type'] == 'realsense':
-                from .hardware_realsense import RealSense
-                # device['interface'][f"rgb_topic"] = device['interface']['topic']
-                # device['interface'][f"rgb_topic"] = "realsense_828112072870/color/image_raw"
-                device['robot'] = RealSense(name=name, **device['interface'])
-
-            elif device['interface']['type'] == 'realsense_one':
-                from .hardware_realsense_one import RealsenseAPI
-                device['robot'] =RealsenseAPI(**device['interface'])
+                try:
+                    from .hardware_realsense import RealSense
+                    device['robot'] = RealSense(name=name, **device['interface'])
+                except:
+                    from .hardware_realsense_single import RealsenseAPI
+                    device['robot'] = RealsenseAPI(**device['interface'])
 
             elif device['interface']['type'] == 'robotiq':
                 from .hardware_robotiq import Robotiq
@@ -457,8 +456,9 @@ class Robot():
             imgs = np.zeros((len(cameras), height, width, 3), dtype=np.uint8)
             depths = np.zeros((len(cameras), height, width))
             for ind, cam in enumerate(cameras):
-                img, depth = sim.render(width=width, height=height, depth=True, mode='offscreen', camera_name=cam, device_id=device_id)
-                img = img[::-1, :, : ] # Image has to be flipped
+                # img, depth = sim.render(width=width, height=height, depth=True, mode='offscreen', camera_name=cam, device_id=device_id)
+                img, depth = sim.renderer.render_offscreen(width=width, height=height, depth=True, camera_id=cam, device_id=device_id)
+                # img = img[::-1, :, :] # Image has to be flipped
                 imgs[ind, :, :, :] = img
                 depths[ind, :, :] = depth
 
@@ -514,6 +514,43 @@ class Robot():
         destination_sim.forward()
 
 
+    # remap sensor/actuators spaces: sim<>hardware, TODO: Needs rigerous testing
+    def remap_space(self, input_vec, input_type:str, input_space:str, output_space:str):
+        assert input_type in ['sensor', 'actuator'], "check input type"
+        assert input_space in ['sim', 'hdr'], "check input space"
+        assert output_space in ['sim', 'hdr'], "check output space"
+        assert input_space != output_space, "Check: Input and output spaces are the same"
+
+        input_space = input_space+'_id'
+        output_space = output_space+'_id'
+        output_vec = input_vec.copy()
+
+        # sim => hdr
+        if input_space == 'sim_id' and output_space == 'hdr_id':
+            output_space == 'data_id'# WARNING: This is a hack as we don't have physical/logical id
+            for name, device in self.robot_config.items():
+                if input_type == 'actuator' and 'actuator' in device.keys() and len(device['actuator'])>0:
+                    for id, actuator in enumerate(device['actuator']):
+                        output_vec[actuator[output_space]] = input_vec[actuator[input_space]]*actuator['scale'] + actuator['offset']
+
+                if input_type == 'sensor' and 'sensor' in device.keys() and len(device['sensor'])>0:
+                    for id, sensor in enumerate(device['sensor']):
+                        output_vec[sensor[output_space]] = (input_vec[sensor[input_space]] - sensor['offset'])/sensor['scale']
+
+        # hdr => sim
+        if input_space == 'hdr_id' and output_space == 'sim_id':
+            input_space == 'data_id' # WARNING: This is a hack as we don't have physical/logical id
+            for name, device in self.robot_config.items():
+                if input_type == 'actuator' and 'actuator' in device.keys() and len(device['actuator'])>0:
+                    for id, actuator in enumerate(device['actuator']):
+                        output_vec[actuator[output_space]] = (input_vec[actuator[input_space]] - actuator['offset'])/actuator['scale']
+
+                if input_type == 'sensor' and 'sensor' in device.keys() and len(device['sensor'])>0:
+                    for id, sensor in enumerate(device['sensor']):
+                        output_vec[sensor[output_space]] = input_vec[sensor[input_space]]*sensor['scale'] + sensor['offset']
+        return output_vec
+
+
     # Normalize actions from absolute space to unit space
     def normalize_actions(self, controls, out_space='sim'):
         """
@@ -530,8 +567,6 @@ class Robot():
                 else:
                     raise TypeError("only pos act supported")
             else:
-                # import ipdb; ipdb.set_trace()
-
                 for actuator in device['actuator']:
                     act_id += 1
                     in_id = actuator['sim_id']
@@ -620,7 +655,7 @@ class Robot():
 
         return processed_controls
 
-
+    # step the robot one step forward in time
     def step(self, ctrl_desired, step_duration, ctrl_normalized=True, realTimeSim=False, render_cbk=None):
         """
         Apply controls and step forward in time
@@ -644,14 +679,9 @@ class Robot():
             if render_cbk:
                 render_cbk()
         else:
-            n_frames=int(step_duration/self.sim.model.opt.timestep)
+            n_frames=int(step_duration/self.sim.step_duration)
             self.sim.data.ctrl[:] = ctrl_feasible
-            with ignore_mujoco_warnings():
-                for _ in range(n_frames):
-                    functions.mj_step2(self.sim.model, self.sim.data)
-                    functions.mj_step1(self.sim.model, self.sim.data)
-                    if render_cbk:
-                        render_cbk()
+            self.sim.advance(substeps=n_frames, render=(render_cbk!=None))
 
         # update viz
         if _ROBOT_VIZ:
@@ -680,7 +710,9 @@ class Robot():
     # Reset the robot
     def reset(self,
               reset_pos,
-              reset_vel):
+              reset_vel,
+              blocking = True
+              ):
 
         prompt("Resetting {}".format(self.name), 'white', 'on_grey', flush=True)
         # Enforce specs on the request
@@ -713,8 +745,8 @@ class Robot():
             # engage other reset mechanisms for passive dofs
             # TODO raise NotImplementedError
 
-            # Jason: Comment out during policy training, keep for collecting demo or evaluation.
-            input("press a key to start rollout")
+            if blocking:
+                input("press a key to start rollout")
             prompt(" Done in {}".format(time.time()-t_reset_start), 'white', 'on_grey', flush=True)
         else:
             # Ideally we should use actuator/ reset mechanism as in the real world
@@ -743,14 +775,14 @@ class Robot():
 
         return feasibe_pos, feasibe_vel
 
-
+    # close connection and exit out of the robot
     def close(self):
         prompt("Closing {}".format(self.name), 'white', 'on_grey', flush=True)
         if self.is_hardware:
             status = self.hardware_close()
             prompt("Closed (Status: {})".format(status), 'white', 'on_grey', flush=True)
 
-
+    # destructor
     def __del__(self):
         self.close()
 
